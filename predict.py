@@ -5,16 +5,12 @@ from model import Net
 from preprocess import preprocess_image
 
 
-# ============================================================
-# MODEL PATH
-# ============================================================
-
 MODEL_PATH = "models/unet_model.pth"
 
+# Current model produces relatively low probabilities.
+# This threshold is for visualization/testing only.
+THRESHOLD = 0.10
 
-# ============================================================
-# LOAD MODEL
-# ============================================================
 
 def load_model():
 
@@ -23,7 +19,7 @@ def load_model():
     model.load_state_dict(
         torch.load(
             MODEL_PATH,
-            map_location=torch.device("cpu")
+            map_location="cpu"
         )
     )
 
@@ -32,38 +28,21 @@ def load_model():
     return model
 
 
-# ============================================================
-# PREDICTION
-# ============================================================
-
 def predict(image_path):
 
     model = load_model()
 
-    # Preprocess MRI
     image = preprocess_image(image_path)
 
-    # Run model
     with torch.no_grad():
 
         output = model(image)
 
-        # Convert model output into probability
         probability = torch.sigmoid(output)
 
-        # Keep the original medically meaningful
-        # binary threshold of 0.5
         prediction = (
-            probability > 0.5
+            probability >= THRESHOLD
         ).float()
-
-    # Convert tensors to NumPy
-    probability_map = (
-        probability
-        .squeeze()
-        .cpu()
-        .numpy()
-    )
 
     mask = (
         prediction
@@ -72,4 +51,4 @@ def predict(image_path):
         .numpy()
     )
 
-    return mask, probability_map
+    return mask
