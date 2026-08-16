@@ -392,9 +392,7 @@ if st.button(
     if tumor_pixels == 0:
 
         st.warning(
-            "The current model did not produce a "
-            "positive segmentation region at the "
-            "0.5 prediction threshold."
+            "The current model did not produce a positive segmentation region at the 0.10 visualization threshold."
         )
 
         st.caption(
@@ -495,8 +493,7 @@ if st.button(
         if tumor_pixels == 0:
 
             st.info(
-                "No pixels crossed the 0.5 segmentation "
-                "threshold for this image."
+               "No pixels crossed the 0.10 visualization threshold for this image."
             )
 
         else:
