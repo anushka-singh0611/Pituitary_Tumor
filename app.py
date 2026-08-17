@@ -2,14 +2,13 @@ import os
 
 import numpy as np
 import streamlit as st
-
 from PIL import Image
 
 from predict import predict
 
 
 # ============================================================
-# PAGE CONFIGURATION
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -24,14 +23,11 @@ st.set_page_config(
 # ============================================================
 
 st.title("🧠 Pituitary Tumor AI")
-
-st.subheader(
-    "MRI Tumor Segmentation System"
-)
+st.subheader("MRI Tumor Segmentation System")
 
 st.write(
-    "Upload a pituitary MRI image to generate "
-    "a U-Net-based tumor segmentation prediction."
+    "Upload a pituitary MRI image to generate a U-Net-based "
+    "segmentation mask."
 )
 
 st.divider()
@@ -46,9 +42,9 @@ with st.sidebar:
     st.header("Project Information")
 
     st.write(
-        "This application uses a U-Net deep learning "
-        "model for pixel-level segmentation of "
-        "suspected tumor regions in MRI images."
+        "This application uses a U-Net deep learning model "
+        "to perform pixel-level segmentation of suspected "
+        "tumor regions in MRI images."
     )
 
     st.divider()
@@ -60,9 +56,7 @@ with st.sidebar:
 
     st.divider()
 
-    st.caption(
-        "Research / Educational Prototype"
-    )
+    st.caption("Research / Educational Prototype")
 
 
 # ============================================================
@@ -93,10 +87,7 @@ uploaded_file = st.file_uploader(
 # ANALYZE BUTTON
 # ============================================================
 
-if st.button(
-    "🔍 Analyze MRI",
-    type="primary"
-):
+if st.button("🔍 Analyze MRI", type="primary"):
 
     # --------------------------------------------------------
     # VALIDATION
@@ -120,22 +111,15 @@ if st.button(
 
 
     # --------------------------------------------------------
-    # CREATE OUTPUT DIRECTORIES
+    # DIRECTORIES
     # --------------------------------------------------------
 
-    os.makedirs(
-        "uploads",
-        exist_ok=True
-    )
-
-    os.makedirs(
-        "outputs",
-        exist_ok=True
-    )
+    os.makedirs("uploads", exist_ok=True)
+    os.makedirs("outputs", exist_ok=True)
 
 
     # --------------------------------------------------------
-    # SAVE INPUT MRI
+    # SAVE UPLOADED IMAGE
     # --------------------------------------------------------
 
     upload_path = os.path.join(
@@ -143,10 +127,7 @@ if st.button(
         uploaded_file.name
     )
 
-    with open(
-        upload_path,
-        "wb"
-    ) as file:
+    with open(upload_path, "wb") as file:
 
         file.write(
             uploaded_file.getbuffer()
@@ -157,21 +138,23 @@ if st.button(
     # LOAD ORIGINAL IMAGE
     # --------------------------------------------------------
 
-    original_image = Image.open(
-        uploaded_file
-    ).convert("RGB")
+    try:
 
-    original_resized = original_image.resize(
-        (256, 256)
-    )
+        original_image = Image.open(
+            uploaded_file
+        ).convert("RGB")
 
-    original_array = np.asarray(
-        original_resized
-    ).copy()
+    except Exception as error:
+
+        st.error("The uploaded file is not a valid image.")
+
+        st.exception(error)
+
+        st.stop()
 
 
     # --------------------------------------------------------
-    # RUN U-NET
+    # RUN MODEL
     # --------------------------------------------------------
 
     try:
@@ -180,9 +163,9 @@ if st.button(
             "Analyzing MRI using U-Net..."
         ):
 
-            mask, probability_map = predict(
-                upload_path
-            )
+            # IMPORTANT:
+            # Current predict.py returns ONLY mask.
+            mask = predict(upload_path)
 
     except Exception as error:
 
@@ -195,234 +178,147 @@ if st.button(
         st.stop()
 
 
-    # --------------------------------------------------------
-    # PREPARE OUTPUTS
-    # --------------------------------------------------------
+    # ========================================================
+    # PREPARE MASK
+    # ========================================================
 
-    mask = np.asarray(mask)
+    try:
 
-    probability_map = np.asarray(
-        probability_map
-    )
+        mask = np.asarray(mask)
 
+        # Remove unnecessary dimensions
+        mask = np.squeeze(mask)
 
-    # Make sure mask is 2D
-    mask = np.squeeze(mask)
+        # Make sure mask is 2-dimensional
+        if mask.ndim != 2:
 
-    # Make sure probability map is 2D
-    probability_map = np.squeeze(
-        probability_map
-    )
+            st.error(
+                f"Unexpected mask shape: {mask.shape}"
+            )
 
+            st.stop()
 
-    # --------------------------------------------------------
-    # RESIZE OUTPUTS IF NECESSARY
-    # --------------------------------------------------------
+    except Exception as error:
 
-    if mask.shape != (256, 256):
-
-        mask_image = Image.fromarray(
-            mask.astype(np.uint8)
+        st.error(
+            "The model returned an invalid segmentation mask."
         )
 
-        mask_image = mask_image.resize(
-            (256, 256)
-        )
+        st.exception(error)
 
-        mask = np.asarray(
-            mask_image
-        )
-
-
-    if probability_map.shape != (256, 256):
-
-        probability_image = Image.fromarray(
-            probability_map.astype(np.float32),
-            mode="F"
-        )
-
-        probability_image = probability_image.resize(
-            (256, 256)
-        )
-
-        probability_map = np.asarray(
-            probability_image
-        )
+        st.stop()
 
 
     # --------------------------------------------------------
-    # BINARY MASK
+    # CONVERT TO BINARY
     # --------------------------------------------------------
 
     mask_binary = (
         mask > 0
-    )
+    ).astype(np.uint8)
+
+
+    # --------------------------------------------------------
+    # COUNT SEGMENTATION PIXELS
+    # --------------------------------------------------------
 
     tumor_pixels = int(
         mask_binary.sum()
     )
 
 
-    # --------------------------------------------------------
-    # PROBABILITY INFORMATION
-    # --------------------------------------------------------
+    # ========================================================
+    # RESIZE ORIGINAL IMAGE
+    # ========================================================
 
-    max_probability = float(
-        probability_map.max()
+    original_resized = original_image.resize(
+        (256, 256)
     )
 
-    mean_probability = float(
-        probability_map.mean()
-    )
+    original_array = np.asarray(
+        original_resized
+    ).copy()
 
 
-    # --------------------------------------------------------
-    # CREATE VISIBLE PROBABILITY MAP
-    # --------------------------------------------------------
+    # ========================================================
+    # CREATE OVERLAY
+    # ========================================================
 
-    # Normalize only for visualization.
-    # This DOES NOT change the model prediction.
+    overlay = original_array.copy()
 
-    if max_probability > 0:
-
-        probability_visual = (
-            probability_map /
-            max_probability
-        )
-
-    else:
-
-        probability_visual = (
-            np.zeros_like(
-                probability_map
-            )
-        )
-
-
-    # Convert to 8-bit image
-    probability_uint8 = (
-        probability_visual * 255
-    ).clip(
-        0,
-        255
-    ).astype(
-        np.uint8
-    )
-
-
-    # --------------------------------------------------------
-    # CREATE HEATMAP
-    # --------------------------------------------------------
-
-    heatmap = np.zeros(
-        (
-            256,
-            256,
-            3
-        ),
-        dtype=np.uint8
-    )
-
-    # Blue → low probability
-    # Red → high probability
-
-    heatmap[:, :, 0] = probability_uint8
-
-    heatmap[:, :, 1] = (
-        255 -
-        probability_uint8
-    )
-
-    heatmap[:, :, 2] = (
-        255 -
-        probability_uint8
-    )
-
-
-    # --------------------------------------------------------
-    # CREATE MRI + PROBABILITY OVERLAY
-    # --------------------------------------------------------
-
-    overlay_probability = (
-        0.65 * original_array +
-        0.35 * heatmap
-    )
-
-    overlay_probability = (
-        overlay_probability
-        .clip(0, 255)
-        .astype(np.uint8)
-    )
-
-
-    # --------------------------------------------------------
-    # CREATE MRI + BINARY MASK OVERLAY
-    # --------------------------------------------------------
-
-    overlay_mask = (
-        original_array.copy()
-    )
 
     if tumor_pixels > 0:
 
-        overlay_mask[
-            mask_binary
-        ] = [
-            255,
-            0,
-            0
-        ]
+        # Create red highlight
+        # over predicted pixels.
+
+        red_layer = np.zeros_like(
+            original_array
+        )
+
+        red_layer[:, :, 0] = 255
+
+        # Blend original MRI with red
+        overlay[mask_binary == 1] = (
+            0.45 * original_array[
+                mask_binary == 1
+            ]
+            +
+            0.55 * red_layer[
+                mask_binary == 1
+            ]
+        ).astype(np.uint8)
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # RESULTS
-    # --------------------------------------------------------
+    # ========================================================
 
     st.divider()
 
-    st.subheader(
-        "📊 Analysis Results"
-    )
+    st.subheader("📊 Analysis Results")
 
 
     # --------------------------------------------------------
-    # STATUS
+    # RESULT MESSAGE
     # --------------------------------------------------------
 
     if tumor_pixels == 0:
 
         st.warning(
-            "The current model did not produce a positive segmentation region at the 0.10 visualization threshold."
+            "The current model did not produce a positive "
+            "segmentation region for this image."
         )
 
         st.caption(
-            "The probability map below shows the model's "
-            "continuous output before thresholding. "
-            "An empty binary mask does not confirm that "
-            "the MRI is tumor-free."
+            "The binary mask is empty because no pixels were "
+            "classified as positive by the current model output. "
+            "This does NOT confirm that the MRI is tumor-free."
         )
 
     else:
 
         st.success(
-            "A segmentation region was produced "
-            "by the current model."
+            "A segmentation region was produced by the model."
         )
 
         st.caption(
-            "The red region represents pixels classified "
-            "as positive by the model."
+            "The highlighted region represents pixels "
+            "classified by the current U-Net model."
         )
 
 
-    # --------------------------------------------------------
-    # IMAGE RESULTS
-    # --------------------------------------------------------
+    # ========================================================
+    # IMAGE DISPLAY
+    # ========================================================
 
     col1, col2, col3 = st.columns(3)
 
 
+    # --------------------------------------------------------
     # ORIGINAL MRI
+    # --------------------------------------------------------
+
     with col1:
 
         st.markdown(
@@ -435,78 +331,65 @@ if st.button(
         )
 
 
-    # PROBABILITY MAP
-    with col2:
-
-        st.markdown(
-            "### Model Probability Map"
-        )
-
-        st.image(
-            heatmap,
-            use_container_width=True
-        )
-
-        st.caption(
-            "Brighter/red regions indicate higher "
-            "model probability relative to this image."
-        )
-
-
-    # OVERLAY
-    with col3:
-
-        st.markdown(
-            "### MRI + Model Output"
-        )
-
-        st.image(
-            overlay_probability,
-            use_container_width=True
-        )
-
-
     # --------------------------------------------------------
     # BINARY MASK
     # --------------------------------------------------------
 
-    st.markdown(
-        "### 🎯 Binary Segmentation Mask"
-    )
+    with col2:
 
-    mask_col1, mask_col2 = st.columns(2)
-
-
-    with mask_col1:
-
-        st.image(
-            mask_binary.astype(
-                np.uint8
-            ),
-            clamp=True,
-            use_container_width=True
+        st.markdown(
+            "### Binary Segmentation Mask"
         )
 
+        if tumor_pixels > 0:
 
-    with mask_col2:
-
-        if tumor_pixels == 0:
-
-            st.info(
-               "No pixels crossed the 0.10 visualization threshold for this image."
+            st.image(
+                mask_binary * 255,
+                clamp=True,
+                use_container_width=True
             )
 
         else:
 
-            st.success(
-                f"{tumor_pixels:,} pixels were "
-                "classified as segmentation."
+            # Explicit black mask
+            # when no pixels are predicted.
+
+            empty_mask = np.zeros(
+                (256, 256),
+                dtype=np.uint8
+            )
+
+            st.image(
+                empty_mask,
+                clamp=True,
+                use_container_width=True
+            )
+
+            st.info(
+                "No positive segmentation pixels "
+                "were produced for this image."
             )
 
 
     # --------------------------------------------------------
-    # PREDICTION INFORMATION
+    # OVERLAY
     # --------------------------------------------------------
+
+    with col3:
+
+        st.markdown(
+            "### MRI + Segmentation"
+        )
+
+        st.image(
+            overlay,
+            use_container_width=True
+        )
+
+
+    # ========================================================
+    # PREDICTION INFORMATION
+    # ========================================================
 
     st.divider()
 
@@ -514,7 +397,7 @@ if st.button(
         "📋 Prediction Information"
     )
 
-    info1, info2, info3, info4 = st.columns(4)
+    info1, info2, info3 = st.columns(3)
 
 
     with info1:
@@ -528,54 +411,76 @@ if st.button(
     with info2:
 
         st.metric(
-            "Maximum Probability",
-            f"{max_probability:.4f}"
+            "Processed Image",
+            "256 × 256"
         )
 
 
     with info3:
 
         st.metric(
-            "Mean Probability",
-            f"{mean_probability:.4f}"
+            "Model",
+            "U-Net"
         )
 
 
-    with info4:
+    # ========================================================
+    # MASK STATISTICS
+    # ========================================================
 
-        st.metric(
-            "Processed Image",
-            "256 × 256"
+    st.markdown("### 🔬 Segmentation Statistics")
+
+    mask_percentage = (
+        tumor_pixels /
+        (256 * 256)
+    ) * 100
+
+    stat1, stat2 = st.columns(2)
+
+
+    with stat1:
+
+        st.write(
+            f"**Positive pixels:** {tumor_pixels:,}"
         )
 
 
-    # --------------------------------------------------------
-    # SAVE BINARY MASK
-    # --------------------------------------------------------
+    with stat2:
+
+        st.write(
+            f"**Image area segmented:** "
+            f"{mask_percentage:.4f}%"
+        )
+
+
+    # ========================================================
+    # SAVE MASK
+    # ========================================================
 
     mask_image = (
-        mask_binary.astype(
-            np.uint8
-        ) * 255
-    )
+        mask_binary * 255
+    ).astype(np.uint8)
+
 
     mask_pil = Image.fromarray(
         mask_image
     )
+
 
     mask_path = os.path.join(
         "outputs",
         "predicted_tumor_mask.png"
     )
 
+
     mask_pil.save(
         mask_path
     )
 
 
-    # --------------------------------------------------------
-    # DOWNLOAD BINARY MASK
-    # --------------------------------------------------------
+    # ========================================================
+    # DOWNLOAD MASK
+    # ========================================================
 
     with open(
         mask_path,
@@ -590,9 +495,9 @@ if st.button(
         )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # COMPLETION
-    # --------------------------------------------------------
+    # ========================================================
 
     st.success(
         "MRI processing completed successfully."
